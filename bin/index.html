@@ -1,0 +1,34 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+<html>
+<head>
+	<title>HaXe & WebGL</title>
+	
+	<meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+	<meta name="language" content="en" />
+	<meta name="description" content="" />
+	<meta name="keywords" content="" />
+	<link rel="stylesheet" type="text/css" href="main.css">		
+	
+</head>
+<body onload="main()">
+	
+	<canvas id="canvas" width="800" height="800"></canvas>	
+		
+	<div style="position:absolute; left:810px; top:0px">
+		<h1>HaXe & WebGL
+		</h1>
+		# Particles: <input id="numParticlesInp" type="text" /><br />
+		Particle Size: <input id="particleSizeInp" type="text" /><br />
+		Wall Friction: <input id="wallFrictionInp" type="text" /><br />			
+		<button id="updateBtn" type="button">Update</button>
+	</div>		
+	
+	<script src="lib/Stats.js"></script>
+	<script src="HaxeWebGLParticles.js"></script>
+	
+	<div style="position:absolute; left:5px; top:-2px; zIndex:100; background: black; color: white; padding: 2px; margin: 0px; font-size: 10px; height: 16px;">
+		<div id="framerate" />
+	</div>		
+		
+</body>
+</html>
