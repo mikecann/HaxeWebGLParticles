@@ -136,7 +136,7 @@ class GPUParticles2
 		
 		// Orthographic rendering
 		var prMatrix = new Mat4();
-		prMatrix.ortho(canvasManager.canvas.width / - 2, canvasManager.canvas.height / 2, canvasManager.canvas.width / 2, canvasManager.canvas.height / - 2, -10000, 10000);		
+		prMatrix.ortho(canvasManager.canvas.width / - 2, canvasManager.canvas.width / 2, canvasManager.canvas.height / 2, canvasManager.canvas.height / - 2, -10000, 10000);		
 		renderShader.perspectiveMatrix.setMatrix(prMatrix.toFloat32Array());
 	}
 	

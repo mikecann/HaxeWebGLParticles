@@ -88,7 +88,7 @@ GPUParticles2.prototype.setupRenderShader = function() {
 	}
 	this.cloud.initFromData(new Float32Array(vertices));
 	var prMatrix = new webgl.math.Mat4();
-	prMatrix.ortho(this.canvasManager.canvas.width / -2,this.canvasManager.canvas.height / 2,this.canvasManager.canvas.width / 2,this.canvasManager.canvas.height / -2,-10000,10000);
+	prMatrix.ortho(this.canvasManager.canvas.width / -2,this.canvasManager.canvas.width / 2,this.canvasManager.canvas.height / 2,this.canvasManager.canvas.height / -2,-10000,10000);
 	this.renderShader.perspectiveMatrix.setMatrix(prMatrix.toFloat32Array());
 }
 GPUParticles2.prototype.update = function() {
