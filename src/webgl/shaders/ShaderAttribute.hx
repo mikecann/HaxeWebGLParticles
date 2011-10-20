@@ -35,7 +35,7 @@ class ShaderAttribute
 		return value;
 	}	
 	
-	private function setBuffer(value:WebGLBuffer) : WebGLBuffer
+	public function setBuffer(value:WebGLBuffer) : WebGLBuffer
 	{
 		shader.use();
 		gl.bindBuffer(gl.ARRAY_BUFFER, value);

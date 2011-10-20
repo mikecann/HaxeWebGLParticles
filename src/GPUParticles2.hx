@@ -5,6 +5,9 @@ import js.Lib;
 import shaders.RenderPointsShader;
 import shaders.UpdatePositionsShader;
 import shaders.UpdateVelocitiesShader;
+import webgl.geom.PointCloud2D;
+import webgl.geom.FullscreenQuad;
+import webgl.geom.PointCloud2D;
 import webgl.math.Mat4;
 import webgl.textures.DoubleBufferedRenderTarget2D;
 import webgl.textures.RenderTarget2D;
@@ -33,6 +36,9 @@ class GPUParticles2
 	private var positionsDB : DoubleBufferedRenderTarget2D;
 	private var velocitiesDB : DoubleBufferedRenderTarget2D;
 	
+	private var quad : FullscreenQuad;
+	private var cloud : PointCloud2D;
+	
 	public function new(gl:WebGLRenderingContext) 
 	{
 		this.gl = gl;				
@@ -46,10 +52,11 @@ class GPUParticles2
 		updateVelocitiesShader = new UpdateVelocitiesShader(gl);
 		renderShader = new RenderPointsShader(gl);	
 		positionsDB = new DoubleBufferedRenderTarget2D(gl);
-		velocitiesDB = new DoubleBufferedRenderTarget2D(gl);
+		velocitiesDB = new DoubleBufferedRenderTarget2D(gl);		
+		quad = new FullscreenQuad(gl);
+		cloud = new PointCloud2D(gl);
 		
-		reset();
-		
+		reset();		
 	}	
 	
 	public function reset() : Void
@@ -61,7 +68,6 @@ class GPUParticles2
 		// Setup some bits
 		setupInitialPositionsAndVelocities();					
 		setupRenderShader();
-		setupPositionAndVelocityUpdateShaders();
 		
 		// Black background with blending
 		gl.blendFunc(gl.SRC_ALPHA, gl.ONE);
@@ -70,27 +76,15 @@ class GPUParticles2
 	
 	private function calculateTexWidthAndHeight():Void 
 	{
-		texWidth = texHeight = 2;
-		
+		texWidth = texHeight = 2;		
 		while (texWidth * texHeight < particleCount)
 		{
 			texWidth *= 2;
 			if (texWidth * texHeight >= particleCount) break;
 			texHeight *= 2;
-		}	
-		
+		}			
 		trace("Texture width and height set to: " + texWidth + "x" + texHeight);
-	}
-	
-	private function setupPositionAndVelocityUpdateShaders() : Void
-	{
-		updatePositionsShader.vertexPosition.setData(new Float32Array([ -1, -1, 0, 0, -1, 1, 0, 1, 1, -1, 1, 0, 1, 1, 1, 1]), 2, 16, 0);
-		updatePositionsShader.vertexTextureCoord.setData(new Float32Array([ -1, -1, 0, 0, -1, 1, 0, 1, 1, -1, 1, 0, 1, 1, 1, 1]), 2, 16, 8);	
-		
-		updateVelocitiesShader.bounceFrictionUniform.setFloat(wallFriction);
-		updateVelocitiesShader.vertexPosition.setData(new Float32Array([ -1, -1, 0, 0, -1, 1, 0, 1, 1, -1, 1, 0, 1, 1, 1, 1]), 2, 16, 0);
-		updateVelocitiesShader.vertexTextureCoord.setData(new Float32Array([ -1, -1, 0, 0, -1, 1, 0, 1, 1, -1, 1, 0, 1, 1, 1, 1]), 2, 16, 8);	
-	}
+	}	
 	
 	private function setupInitialPositionsAndVelocities() : Void
 	{
@@ -122,12 +116,6 @@ class GPUParticles2
 	
 	private function setupRenderShader() : Void	
 	{
-		// To be honest im not sure why this attribute HAS to point at 2 rather than 
-		// just getting the attrib location as usual 
-		var aPointsLoc = 2;
-		gl.bindAttribLocation(renderShader.program, aPointsLoc, "vertexPosition");
-		gl.linkProgram(renderShader.program);
-
 		var vertices = [];
 		var invTexW : Float = 1 / texWidth;
 		var invTexH : Float = 1 / texHeight;
@@ -142,16 +130,9 @@ class GPUParticles2
 				x += invTexW;
 			}
 			y += invTexH;
-		}		
-		
-		gl.enableVertexAttribArray( aPointsLoc );
-		gl.bindBuffer(gl.ARRAY_BUFFER, gl.createBuffer());
-		gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(vertices), gl.STATIC_DRAW);
-		gl.vertexAttribPointer(aPointsLoc, 2, gl.FLOAT, false, 0, 0);
-		
-		renderShader.setupAtribsAndUniforms();			
-		renderShader.pointSize.setFloat(particleSize);	
-		//renderShader.vertexPosition.setData(new Float32Array(vertices));
+		}				
+
+		cloud.initFromData(new Float32Array(vertices));
 		
 		// Orthographic rendering
 		var prMatrix = new Mat4();
@@ -160,55 +141,76 @@ class GPUParticles2
 	}
 	
 	public function update():Void 
+	{		
+		// Update
+		updatePositions();
+		updateVelocities();
+		
+		// Render
+		drawScene();
+		
+		// Swap our double buffers
+		positionsDB.swap();
+		velocitiesDB.swap();
+	}
+	
+	private function updatePositions(): Void
 	{
 		// Limit to the size of our offscreen buffers
-		gl.viewport(0, 0, texWidth, texHeight);
-	
-		// Update positions
+		gl.viewport(0, 0, texWidth, texHeight);	
+		
+		// Update shader params
 		updatePositionsShader.use();		
 		updatePositionsShader.worldWidthUniform.setFloat(canvasManager.canvas.width/2);
 		updatePositionsShader.worldHeightUniform.setFloat(canvasManager.canvas.height / 2);
 		updatePositionsShader.positionsUniform.setTexture(positionsDB.front);
 		updatePositionsShader.velocitiesUniform.setTexture(velocitiesDB.front);	
+		updatePositionsShader.vertexPosition.setBuffer(quad.vertexBuffer);
+		updatePositionsShader.vertexTextureCoord.setBuffer(quad.texCoordBuffer);	
+		
+		// Render updates to back buffer
 		positionsDB.back.bind();		
-		gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+		quad.render();
 		positionsDB.back.unbind();
-		gl.flush();
-
-		// Update velocities
+	}
+	
+	private function updateVelocities() : Void
+	{
+		// Limit to the size of our offscreen buffers
+		gl.viewport(0, 0, texWidth, texHeight);	
+		
+		// Update shader params
 		updateVelocitiesShader.use();		
 		updateVelocitiesShader.worldWidthUniform.setFloat(canvasManager.canvas.width/2);
 		updateVelocitiesShader.worldHeightUniform.setFloat(canvasManager.canvas.height / 2);				
 		updateVelocitiesShader.positionsUniform.setTexture(positionsDB.front);
-		updateVelocitiesShader.velocitiesUniform.setTexture(velocitiesDB.front);		
-		velocitiesDB.back.bind();
-		gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
-		velocitiesDB.back.unbind();
-		gl.flush();
-	
-		// Render it all
-		drawScene();
+		updateVelocitiesShader.velocitiesUniform.setTexture(velocitiesDB.front);
+		updateVelocitiesShader.vertexPosition.setBuffer(quad.vertexBuffer);
+		updateVelocitiesShader.vertexTextureCoord.setBuffer(quad.texCoordBuffer);
+		updateVelocitiesShader.bounceFrictionUniform.setFloat(wallFriction);
 		
-		positionsDB.swap();
-		velocitiesDB.swap();
+		// Render updates to back buffer
+		velocitiesDB.back.bind();
+		quad.render();
+		velocitiesDB.back.unbind();
 	}
 	
-	function drawScene()
+	private function drawScene()
 	{
 		// Set the viewport back to the full canvas size and clear
 		gl.viewport(0, 0,  Std.int(canvasManager.canvas.width),  Std.int(canvasManager.canvas.height));
 		gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
 		
+		// Update shader params
 		renderShader.use();
-	
-		// The mv matrix may have changed, reset it	
+		renderShader.vertexPosition.setBuffer(cloud.vertexBuffer);
 		renderShader.viewMatrix.setMatrix(mvMatrix.toFloat32Array());		
 		renderShader.positionsTexture.setTexture(positionsDB.back);
+		renderShader.pointSize.setFloat(particleSize);	
 
 		// Render all the points
 		gl.enable(gl.BLEND);
-		gl.drawArrays(gl.POINTS, 0, particleCount);
-		gl.disable(gl.BLEND);
-		gl.flush ();		
+		cloud.render();
+		gl.disable(gl.BLEND);	
 	}	
 }

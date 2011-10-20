@@ -12,6 +12,8 @@ GPUParticles2 = function(gl) {
 	this.renderShader = new shaders.RenderPointsShader(gl);
 	this.positionsDB = new webgl.textures.DoubleBufferedRenderTarget2D(gl);
 	this.velocitiesDB = new webgl.textures.DoubleBufferedRenderTarget2D(gl);
+	this.quad = new webgl.geom.FullscreenQuad(gl);
+	this.cloud = new webgl.geom.PointCloud2D(gl);
 	this.reset();
 }
 GPUParticles2.__name__ = ["GPUParticles2"];
@@ -28,11 +30,12 @@ GPUParticles2.prototype.updateVelocitiesShader = null;
 GPUParticles2.prototype.renderShader = null;
 GPUParticles2.prototype.positionsDB = null;
 GPUParticles2.prototype.velocitiesDB = null;
+GPUParticles2.prototype.quad = null;
+GPUParticles2.prototype.cloud = null;
 GPUParticles2.prototype.reset = function() {
 	this.calculateTexWidthAndHeight();
 	this.setupInitialPositionsAndVelocities();
 	this.setupRenderShader();
-	this.setupPositionAndVelocityUpdateShaders();
 	this.gl.blendFunc(this.gl.SRC_ALPHA,this.gl.ONE);
 	this.gl.clearColor(0,0,0,1);
 }
@@ -43,14 +46,7 @@ GPUParticles2.prototype.calculateTexWidthAndHeight = function() {
 		if(this.texWidth * this.texHeight >= this.particleCount) break;
 		this.texHeight *= 2;
 	}
-	haxe.Log.trace("Texture width and height set to: " + this.texWidth + "x" + this.texHeight,{ fileName : "GPUParticles2.hx", lineNumber : 82, className : "GPUParticles2", methodName : "calculateTexWidthAndHeight"});
-}
-GPUParticles2.prototype.setupPositionAndVelocityUpdateShaders = function() {
-	this.updatePositionsShader.vertexPosition.setData(new Float32Array([-1,-1,0,0,-1,1,0,1,1,-1,1,0,1,1,1,1]),2,16,0);
-	this.updatePositionsShader.vertexTextureCoord.setData(new Float32Array([-1,-1,0,0,-1,1,0,1,1,-1,1,0,1,1,1,1]),2,16,8);
-	this.updateVelocitiesShader.bounceFrictionUniform.setFloat(this.wallFriction);
-	this.updateVelocitiesShader.vertexPosition.setData(new Float32Array([-1,-1,0,0,-1,1,0,1,1,-1,1,0,1,1,1,1]),2,16,0);
-	this.updateVelocitiesShader.vertexTextureCoord.setData(new Float32Array([-1,-1,0,0,-1,1,0,1,1,-1,1,0,1,1,1,1]),2,16,8);
+	haxe.Log.trace("Texture width and height set to: " + this.texWidth + "x" + this.texHeight,{ fileName : "GPUParticles2.hx", lineNumber : 86, className : "GPUParticles2", methodName : "calculateTexWidthAndHeight"});
 }
 GPUParticles2.prototype.setupInitialPositionsAndVelocities = function() {
 	var positions = [];
@@ -77,9 +73,6 @@ GPUParticles2.prototype.setupInitialPositionsAndVelocities = function() {
 	this.velocitiesDB.bufferB.setupFBO();
 }
 GPUParticles2.prototype.setupRenderShader = function() {
-	var aPointsLoc = 2;
-	this.gl.bindAttribLocation(this.renderShader.program,aPointsLoc,"vertexPosition");
-	this.gl.linkProgram(this.renderShader.program);
 	var vertices = [];
 	var invTexW = 1 / this.texWidth;
 	var invTexH = 1 / this.texHeight;
@@ -93,50 +86,56 @@ GPUParticles2.prototype.setupRenderShader = function() {
 		}
 		y += invTexH;
 	}
-	this.gl.enableVertexAttribArray(aPointsLoc);
-	this.gl.bindBuffer(this.gl.ARRAY_BUFFER,this.gl.createBuffer());
-	this.gl.bufferData(this.gl.ARRAY_BUFFER,new Float32Array(vertices),this.gl.STATIC_DRAW);
-	this.gl.vertexAttribPointer(aPointsLoc,2,this.gl.FLOAT,false,0,0);
-	this.renderShader.setupAtribsAndUniforms();
-	this.renderShader.pointSize.setFloat(this.particleSize);
+	this.cloud.initFromData(new Float32Array(vertices));
 	var prMatrix = new webgl.math.Mat4();
 	prMatrix.ortho(this.canvasManager.canvas.width / -2,this.canvasManager.canvas.height / 2,this.canvasManager.canvas.width / 2,this.canvasManager.canvas.height / -2,-10000,10000);
 	this.renderShader.perspectiveMatrix.setMatrix(prMatrix.toFloat32Array());
 }
 GPUParticles2.prototype.update = function() {
+	this.updatePositions();
+	this.updateVelocities();
+	this.drawScene();
+	this.positionsDB.swap();
+	this.velocitiesDB.swap();
+}
+GPUParticles2.prototype.updatePositions = function() {
 	this.gl.viewport(0,0,this.texWidth,this.texHeight);
 	this.updatePositionsShader["use"]();
 	this.updatePositionsShader.worldWidthUniform.setFloat(this.canvasManager.canvas.width / 2);
 	this.updatePositionsShader.worldHeightUniform.setFloat(this.canvasManager.canvas.height / 2);
 	this.updatePositionsShader.positionsUniform.setTexture(this.positionsDB.front);
 	this.updatePositionsShader.velocitiesUniform.setTexture(this.velocitiesDB.front);
+	this.updatePositionsShader.vertexPosition.setBuffer(this.quad.vertexBuffer);
+	this.updatePositionsShader.vertexTextureCoord.setBuffer(this.quad.texCoordBuffer);
 	this.positionsDB.back.bind();
-	this.gl.drawArrays(this.gl.TRIANGLE_STRIP,0,4);
+	this.quad.render();
 	this.positionsDB.back.unbind();
-	this.gl.flush();
+}
+GPUParticles2.prototype.updateVelocities = function() {
+	this.gl.viewport(0,0,this.texWidth,this.texHeight);
 	this.updateVelocitiesShader["use"]();
 	this.updateVelocitiesShader.worldWidthUniform.setFloat(this.canvasManager.canvas.width / 2);
 	this.updateVelocitiesShader.worldHeightUniform.setFloat(this.canvasManager.canvas.height / 2);
 	this.updateVelocitiesShader.positionsUniform.setTexture(this.positionsDB.front);
 	this.updateVelocitiesShader.velocitiesUniform.setTexture(this.velocitiesDB.front);
+	this.updateVelocitiesShader.vertexPosition.setBuffer(this.quad.vertexBuffer);
+	this.updateVelocitiesShader.vertexTextureCoord.setBuffer(this.quad.texCoordBuffer);
+	this.updateVelocitiesShader.bounceFrictionUniform.setFloat(this.wallFriction);
 	this.velocitiesDB.back.bind();
-	this.gl.drawArrays(this.gl.TRIANGLE_STRIP,0,4);
+	this.quad.render();
 	this.velocitiesDB.back.unbind();
-	this.gl.flush();
-	this.drawScene();
-	this.positionsDB.swap();
-	this.velocitiesDB.swap();
 }
 GPUParticles2.prototype.drawScene = function() {
 	this.gl.viewport(0,0,Std["int"](this.canvasManager.canvas.width),Std["int"](this.canvasManager.canvas.height));
 	this.gl.clear(this.gl.COLOR_BUFFER_BIT | this.gl.DEPTH_BUFFER_BIT);
 	this.renderShader["use"]();
+	this.renderShader.vertexPosition.setBuffer(this.cloud.vertexBuffer);
 	this.renderShader.viewMatrix.setMatrix(this.mvMatrix.toFloat32Array());
 	this.renderShader.positionsTexture.setTexture(this.positionsDB.back);
+	this.renderShader.pointSize.setFloat(this.particleSize);
 	this.gl.enable(this.gl.BLEND);
-	this.gl.drawArrays(this.gl.POINTS,0,this.particleCount);
+	this.cloud.render();
 	this.gl.disable(this.gl.BLEND);
-	this.gl.flush();
 }
 GPUParticles2.prototype.__class__ = GPUParticles2;
 if(typeof webgl=='undefined') webgl = {}
@@ -788,83 +787,6 @@ js.Lib.setErrorHandler = function(f) {
 	js.Lib.onerror = f;
 }
 js.Lib.prototype.__class__ = js.Lib;
-webgl.textures.Texture2D = function(gl) {
-	if( gl === $_ ) return;
-	this.gl = gl;
-	this.isLoaded = false;
-	this.texture = gl.createTexture();
-}
-webgl.textures.Texture2D.__name__ = ["webgl","textures","Texture2D"];
-webgl.textures.Texture2D.prototype.onCompleteCallback = null;
-webgl.textures.Texture2D.prototype.image = null;
-webgl.textures.Texture2D.prototype.texture = null;
-webgl.textures.Texture2D.prototype.isLoaded = null;
-webgl.textures.Texture2D.prototype.url = null;
-webgl.textures.Texture2D.prototype.width = null;
-webgl.textures.Texture2D.prototype.height = null;
-webgl.textures.Texture2D.prototype.format = null;
-webgl.textures.Texture2D.prototype.type = null;
-webgl.textures.Texture2D.prototype.yFlip = null;
-webgl.textures.Texture2D.prototype.gl = null;
-webgl.textures.Texture2D.prototype["use"] = function(textureSlot) {
-	this.gl.activeTexture(this.gl.TEXTURE0 + textureSlot);
-	this.gl.bindTexture(this.gl.TEXTURE_2D,this.texture);
-}
-webgl.textures.Texture2D.prototype.unuse = function(textureSlot) {
-	this.gl.activeTexture(this.gl.TEXTURE0 + textureSlot);
-	this.gl.bindTexture(this.gl.TEXTURE_2D,this.texture);
-}
-webgl.textures.Texture2D.prototype.load = function(url,onComplete) {
-	this.onCompleteCallback = onComplete;
-	this.url = url;
-	this.image = js.Lib.document.createElement("img");
-	this.image.onload = $closure(this,"onTextureImageLoaded");
-	this.image.src = url;
-	return this;
-}
-webgl.textures.Texture2D.prototype.onTextureImageLoaded = function(e) {
-	haxe.Log.trace("Texture Loaded -> " + this.url,{ fileName : "Texture2D.hx", lineNumber : 63, className : "webgl.textures.Texture2D", methodName : "onTextureImageLoaded"});
-	this.isLoaded = true;
-	this.width = this.image.width;
-	this.height = this.image.height;
-	this.gl.bindTexture(this.gl.TEXTURE_2D,this.texture);
-	this.gl.pixelStorei(this.gl.UNPACK_FLIP_Y_WEBGL,this.yFlip?1:0);
-	this.gl.texImage2D(this.gl.TEXTURE_2D,0,this.gl.RGBA,this.gl.RGBA,this.gl.UNSIGNED_BYTE,this.image);
-	this.gl.texParameteri(this.gl.TEXTURE_2D,this.gl.TEXTURE_MIN_FILTER,this.gl.LINEAR);
-	this.gl.texParameteri(this.gl.TEXTURE_2D,this.gl.TEXTURE_MAG_FILTER,this.gl.LINEAR);
-	this.gl.texParameteri(this.gl.TEXTURE_2D,this.gl.TEXTURE_WRAP_S,this.gl.CLAMP_TO_EDGE);
-	this.gl.texParameteri(this.gl.TEXTURE_2D,this.gl.TEXTURE_WRAP_T,this.gl.CLAMP_TO_EDGE);
-	this.gl.bindTexture(this.gl.TEXTURE_2D,null);
-	if(this.onCompleteCallback != null) this.onCompleteCallback(this);
-}
-webgl.textures.Texture2D.prototype.initFromBytes = function(width,height,data) {
-	this.width = width;
-	this.height = height;
-	this.format = this.gl.RGBA;
-	this.isLoaded = true;
-	this.type = this.gl.UNSIGNED_BYTE;
-	this.gl.bindTexture(this.gl.TEXTURE_2D,this.texture);
-	this.gl.texImage2D(this.gl.TEXTURE_2D,0,this.gl.RGBA,width,height,0,this.gl.RGBA,this.type,new Uint8Array(data));
-	this.gl.texParameteri(this.gl.TEXTURE_2D,this.gl.TEXTURE_MAG_FILTER,this.gl.NEAREST);
-	this.gl.texParameteri(this.gl.TEXTURE_2D,this.gl.TEXTURE_MIN_FILTER,this.gl.NEAREST);
-	this.gl.texParameteri(this.gl.TEXTURE_2D,this.gl.TEXTURE_WRAP_S,this.gl.CLAMP_TO_EDGE);
-	this.gl.texParameteri(this.gl.TEXTURE_2D,this.gl.TEXTURE_WRAP_T,this.gl.CLAMP_TO_EDGE);
-	this.gl.bindTexture(this.gl.TEXTURE_2D,null);
-}
-webgl.textures.Texture2D.prototype.initFromFloats = function(width,height,data) {
-	this.width = width;
-	this.height = height;
-	this.format = this.gl.RGBA;
-	this.isLoaded = true;
-	this.type = this.gl.FLOAT;
-	this.gl.bindTexture(this.gl.TEXTURE_2D,this.texture);
-	this.gl.pixelStorei(this.gl.UNPACK_ALIGNMENT,1);
-	this.gl.texImage2D(this.gl.TEXTURE_2D,0,this.gl.RGB,width,height,0,this.gl.RGB,this.gl.FLOAT,new Float32Array(data));
-	this.gl.texParameteri(this.gl.TEXTURE_2D,this.gl.TEXTURE_MIN_FILTER,this.gl.NEAREST);
-	this.gl.texParameteri(this.gl.TEXTURE_2D,this.gl.TEXTURE_MAG_FILTER,this.gl.NEAREST);
-	this.gl.bindTexture(this.gl.TEXTURE_2D,null);
-}
-webgl.textures.Texture2D.prototype.__class__ = webgl.textures.Texture2D;
 js.Boot = function() { }
 js.Boot.__name__ = ["js","Boot"];
 js.Boot.__unhtml = function(s) {
@@ -1046,6 +968,128 @@ js.Boot.__init = function() {
 	$closure = js.Boot.__closure;
 }
 js.Boot.prototype.__class__ = js.Boot;
+if(!webgl.geom) webgl.geom = {}
+webgl.geom.PointCloud2D = function(gl) {
+	if( gl === $_ ) return;
+	this.gl = gl;
+}
+webgl.geom.PointCloud2D.__name__ = ["webgl","geom","PointCloud2D"];
+webgl.geom.PointCloud2D.prototype.vertexBuffer = null;
+webgl.geom.PointCloud2D.prototype.gl = null;
+webgl.geom.PointCloud2D.prototype.initFromData = function(points) {
+	this.vertexBuffer = this.gl.createBuffer();
+	this.gl.bindBuffer(this.gl.ARRAY_BUFFER,this.vertexBuffer);
+	this.gl.bufferData(this.gl.ARRAY_BUFFER,points,this.gl.STATIC_DRAW);
+	this.vertexBuffer.itemSize = 2;
+	this.vertexBuffer.numItems = Std["int"](points.length / 2);
+}
+webgl.geom.PointCloud2D.prototype.render = function() {
+	this.gl.drawArrays(this.gl.POINTS,0,this.vertexBuffer.numItems);
+}
+webgl.geom.PointCloud2D.prototype.__class__ = webgl.geom.PointCloud2D;
+webgl.textures.Texture2D = function(gl) {
+	if( gl === $_ ) return;
+	this.gl = gl;
+	this.isLoaded = false;
+	this.texture = gl.createTexture();
+}
+webgl.textures.Texture2D.__name__ = ["webgl","textures","Texture2D"];
+webgl.textures.Texture2D.prototype.onCompleteCallback = null;
+webgl.textures.Texture2D.prototype.image = null;
+webgl.textures.Texture2D.prototype.texture = null;
+webgl.textures.Texture2D.prototype.isLoaded = null;
+webgl.textures.Texture2D.prototype.url = null;
+webgl.textures.Texture2D.prototype.width = null;
+webgl.textures.Texture2D.prototype.height = null;
+webgl.textures.Texture2D.prototype.format = null;
+webgl.textures.Texture2D.prototype.type = null;
+webgl.textures.Texture2D.prototype.yFlip = null;
+webgl.textures.Texture2D.prototype.gl = null;
+webgl.textures.Texture2D.prototype["use"] = function(textureSlot) {
+	this.gl.activeTexture(this.gl.TEXTURE0 + textureSlot);
+	this.gl.bindTexture(this.gl.TEXTURE_2D,this.texture);
+}
+webgl.textures.Texture2D.prototype.unuse = function(textureSlot) {
+	this.gl.activeTexture(this.gl.TEXTURE0 + textureSlot);
+	this.gl.bindTexture(this.gl.TEXTURE_2D,this.texture);
+}
+webgl.textures.Texture2D.prototype.load = function(url,onComplete) {
+	this.onCompleteCallback = onComplete;
+	this.url = url;
+	this.image = js.Lib.document.createElement("img");
+	this.image.onload = $closure(this,"onTextureImageLoaded");
+	this.image.src = url;
+	return this;
+}
+webgl.textures.Texture2D.prototype.onTextureImageLoaded = function(e) {
+	haxe.Log.trace("Texture Loaded -> " + this.url,{ fileName : "Texture2D.hx", lineNumber : 63, className : "webgl.textures.Texture2D", methodName : "onTextureImageLoaded"});
+	this.isLoaded = true;
+	this.width = this.image.width;
+	this.height = this.image.height;
+	this.gl.bindTexture(this.gl.TEXTURE_2D,this.texture);
+	this.gl.pixelStorei(this.gl.UNPACK_FLIP_Y_WEBGL,this.yFlip?1:0);
+	this.gl.texImage2D(this.gl.TEXTURE_2D,0,this.gl.RGBA,this.gl.RGBA,this.gl.UNSIGNED_BYTE,this.image);
+	this.gl.texParameteri(this.gl.TEXTURE_2D,this.gl.TEXTURE_MIN_FILTER,this.gl.LINEAR);
+	this.gl.texParameteri(this.gl.TEXTURE_2D,this.gl.TEXTURE_MAG_FILTER,this.gl.LINEAR);
+	this.gl.texParameteri(this.gl.TEXTURE_2D,this.gl.TEXTURE_WRAP_S,this.gl.CLAMP_TO_EDGE);
+	this.gl.texParameteri(this.gl.TEXTURE_2D,this.gl.TEXTURE_WRAP_T,this.gl.CLAMP_TO_EDGE);
+	this.gl.bindTexture(this.gl.TEXTURE_2D,null);
+	if(this.onCompleteCallback != null) this.onCompleteCallback(this);
+}
+webgl.textures.Texture2D.prototype.initFromBytes = function(width,height,data) {
+	this.width = width;
+	this.height = height;
+	this.format = this.gl.RGBA;
+	this.isLoaded = true;
+	this.type = this.gl.UNSIGNED_BYTE;
+	this.gl.bindTexture(this.gl.TEXTURE_2D,this.texture);
+	this.gl.texImage2D(this.gl.TEXTURE_2D,0,this.gl.RGBA,width,height,0,this.gl.RGBA,this.type,new Uint8Array(data));
+	this.gl.texParameteri(this.gl.TEXTURE_2D,this.gl.TEXTURE_MAG_FILTER,this.gl.NEAREST);
+	this.gl.texParameteri(this.gl.TEXTURE_2D,this.gl.TEXTURE_MIN_FILTER,this.gl.NEAREST);
+	this.gl.texParameteri(this.gl.TEXTURE_2D,this.gl.TEXTURE_WRAP_S,this.gl.CLAMP_TO_EDGE);
+	this.gl.texParameteri(this.gl.TEXTURE_2D,this.gl.TEXTURE_WRAP_T,this.gl.CLAMP_TO_EDGE);
+	this.gl.bindTexture(this.gl.TEXTURE_2D,null);
+}
+webgl.textures.Texture2D.prototype.initFromFloats = function(width,height,data) {
+	this.width = width;
+	this.height = height;
+	this.format = this.gl.RGBA;
+	this.isLoaded = true;
+	this.type = this.gl.FLOAT;
+	this.gl.bindTexture(this.gl.TEXTURE_2D,this.texture);
+	this.gl.pixelStorei(this.gl.UNPACK_ALIGNMENT,1);
+	this.gl.texImage2D(this.gl.TEXTURE_2D,0,this.gl.RGB,width,height,0,this.gl.RGB,this.gl.FLOAT,new Float32Array(data));
+	this.gl.texParameteri(this.gl.TEXTURE_2D,this.gl.TEXTURE_MIN_FILTER,this.gl.NEAREST);
+	this.gl.texParameteri(this.gl.TEXTURE_2D,this.gl.TEXTURE_MAG_FILTER,this.gl.NEAREST);
+	this.gl.bindTexture(this.gl.TEXTURE_2D,null);
+}
+webgl.textures.Texture2D.prototype.__class__ = webgl.textures.Texture2D;
+webgl.geom.FullscreenQuad = function(gl) {
+	if( gl === $_ ) return;
+	this.gl = gl;
+	this.init();
+}
+webgl.geom.FullscreenQuad.__name__ = ["webgl","geom","FullscreenQuad"];
+webgl.geom.FullscreenQuad.prototype.vertexBuffer = null;
+webgl.geom.FullscreenQuad.prototype.texCoordBuffer = null;
+webgl.geom.FullscreenQuad.prototype.gl = null;
+webgl.geom.FullscreenQuad.prototype.init = function() {
+	this.vertexBuffer = this.gl.createBuffer();
+	this.gl.bindBuffer(this.gl.ARRAY_BUFFER,this.vertexBuffer);
+	this.gl.bufferData(this.gl.ARRAY_BUFFER,new Float32Array([-1,-1,0,1,-1,0,-1,1,0,1,1,0]),this.gl.STATIC_DRAW);
+	this.vertexBuffer.itemSize = 3;
+	this.vertexBuffer.numItems = 4;
+	this.texCoordBuffer = this.gl.createBuffer();
+	this.gl.bindBuffer(this.gl.ARRAY_BUFFER,this.texCoordBuffer);
+	this.gl.bufferData(this.gl.ARRAY_BUFFER,new Float32Array([0,0,1,0,0,1,1,1]),this.gl.STATIC_DRAW);
+	this.texCoordBuffer.itemSize = 2;
+	this.texCoordBuffer.numItems = 4;
+}
+webgl.geom.FullscreenQuad.prototype.render = function() {
+	this.gl.bindBuffer(this.gl.ARRAY_BUFFER,this.vertexBuffer);
+	this.gl.drawArrays(this.gl.TRIANGLE_STRIP,0,this.vertexBuffer.numItems);
+}
+webgl.geom.FullscreenQuad.prototype.__class__ = webgl.geom.FullscreenQuad;
 webgl.textures.RenderTarget2D = function(gl) {
 	if( gl === $_ ) return;
 	webgl.textures.Texture2D.call(this,gl);
