@@ -1,6 +1,7 @@
 package webgl.shaders;
 
 import Html5Dom;
+import webgl.textures.Texture2D;
 
 /**
  * ...
@@ -21,6 +22,14 @@ class ShaderUniform
 		this.name = name;
 		this.gl = shader.gl;		
 		location = gl.getUniformLocation(shader.program, name);
+	}
+	
+	public function setTexture(textureSlot:GLint, i:Int, value:Texture2D) : Void
+	{
+		shader.use();
+		gl.uniform1i(location, i);
+		gl.activeTexture(textureSlot);
+		gl.bindTexture(gl.TEXTURE_2D, value.texture);
 	}
 	
 	public function setInt(value:Int):Void

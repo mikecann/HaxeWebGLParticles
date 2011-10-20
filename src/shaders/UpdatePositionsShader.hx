@@ -3,6 +3,7 @@ package shaders;
 import Html5Dom;
 import webgl.shaders.Shader;
 import webgl.shaders.ShaderAttribute;
+import webgl.shaders.ShaderTextureUniform;
 import webgl.shaders.ShaderUniform;
 
 /**
@@ -12,8 +13,8 @@ import webgl.shaders.ShaderUniform;
 
 class UpdatePositionsShader extends Shader
 {	
-	public var positionsUniform : ShaderUniform;
-	public var velocitiesUniform : ShaderUniform;
+	public var positionsUniform : ShaderTextureUniform;
+	public var velocitiesUniform : ShaderTextureUniform;
 	public var worldWidthUniform : ShaderUniform;
 	public var worldHeightUniform : ShaderUniform;
 	
@@ -25,8 +26,8 @@ class UpdatePositionsShader extends Shader
 		super(gl);	
 		vertexPosition = new ShaderAttribute(this, "aPos");
 		vertexTextureCoord = new ShaderAttribute(this, "aTexCoord");
-		positionsUniform = new ShaderUniform(this, "positions");
-		velocitiesUniform = new ShaderUniform(this, "velocities");
+		positionsUniform = new ShaderTextureUniform(this, "positions", 0);
+		velocitiesUniform = new ShaderTextureUniform(this, "velocities", 1);
 		
 		worldWidthUniform = new ShaderUniform(this, "worldW");
 		worldHeightUniform = new ShaderUniform(this, "worldH");

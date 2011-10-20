@@ -3,6 +3,7 @@ package shaders;
 import Html5Dom;
 import webgl.shaders.Shader;
 import webgl.shaders.ShaderAttribute;
+import webgl.shaders.ShaderTextureUniform;
 import webgl.shaders.ShaderUniform;
 
 /**
@@ -15,7 +16,7 @@ class RenderPointsShader extends Shader
 	public var vertexPosition : ShaderAttribute;	
 	public var viewMatrix : ShaderUniform;
 	public var perspectiveMatrix : ShaderUniform;
-	public var positionsTexture : ShaderUniform;
+	public var positionsTexture : ShaderTextureUniform;
 	public var pointSize : ShaderUniform;
 	
 	public function new(gl:WebGLRenderingContext)
@@ -28,7 +29,7 @@ class RenderPointsShader extends Shader
 	{
 		viewMatrix = new ShaderUniform(this, "mvMatrix");
 		perspectiveMatrix = new ShaderUniform(this, "prMatrix");
-		positionsTexture = new ShaderUniform(this, "positions");
+		positionsTexture = new ShaderTextureUniform(this, "positions", 0);
 		vertexPosition = new ShaderAttribute(this, "vertexPosition");
 		pointSize = new ShaderUniform(this, "pointSize");
 	}

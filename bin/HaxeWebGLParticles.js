@@ -10,8 +10,8 @@ GPUParticles2 = function(gl) {
 	this.updatePositionsShader = new shaders.UpdatePositionsShader(gl);
 	this.updateVelocitiesShader = new shaders.UpdateVelocitiesShader(gl);
 	this.renderShader = new shaders.RenderPointsShader(gl);
-	this.positionsFBO = new webgl.textures.RenderTarget2D(gl);
-	this.velocitiesFBO = new webgl.textures.RenderTarget2D(gl);
+	this.positionsDB = new webgl.textures.DoubleBufferedRenderTarget2D(gl);
+	this.velocitiesDB = new webgl.textures.DoubleBufferedRenderTarget2D(gl);
 	this.reset();
 }
 GPUParticles2.__name__ = ["GPUParticles2"];
@@ -26,14 +26,13 @@ GPUParticles2.prototype.canvasManager = null;
 GPUParticles2.prototype.updatePositionsShader = null;
 GPUParticles2.prototype.updateVelocitiesShader = null;
 GPUParticles2.prototype.renderShader = null;
-GPUParticles2.prototype.positionsFBO = null;
-GPUParticles2.prototype.velocitiesFBO = null;
+GPUParticles2.prototype.positionsDB = null;
+GPUParticles2.prototype.velocitiesDB = null;
 GPUParticles2.prototype.reset = function() {
 	this.calculateTexWidthAndHeight();
 	this.setupInitialPositionsAndVelocities();
 	this.setupRenderShader();
 	this.setupPositionAndVelocityUpdateShaders();
-	this.renderShader.positionsTexture.setInt(0);
 	this.gl.blendFunc(this.gl.SRC_ALPHA,this.gl.ONE);
 	this.gl.clearColor(0,0,0,1);
 }
@@ -44,7 +43,7 @@ GPUParticles2.prototype.calculateTexWidthAndHeight = function() {
 		if(this.texWidth * this.texHeight >= this.particleCount) break;
 		this.texHeight *= 2;
 	}
-	haxe.Log.trace("Texture width and height set to: " + this.texWidth + "x" + this.texHeight,{ fileName : "GPUParticles2.hx", lineNumber : 85, className : "GPUParticles2", methodName : "calculateTexWidthAndHeight"});
+	haxe.Log.trace("Texture width and height set to: " + this.texWidth + "x" + this.texHeight,{ fileName : "GPUParticles2.hx", lineNumber : 82, className : "GPUParticles2", methodName : "calculateTexWidthAndHeight"});
 }
 GPUParticles2.prototype.setupPositionAndVelocityUpdateShaders = function() {
 	this.updatePositionsShader.vertexPosition.setData(new Float32Array([-1,-1,0,0,-1,1,0,1,1,-1,1,0,1,1,1,1]),2,16,0);
@@ -68,10 +67,14 @@ GPUParticles2.prototype.setupInitialPositionsAndVelocities = function() {
 		velocities.push(-4 + Math.cos(ang) * dist * 2 + Math.random() * 8);
 		velocities.push(0);
 	}
-	this.positionsFBO.initFromFloats(this.gl.TEXTURE0,this.texWidth,this.texHeight,positions);
-	this.velocitiesFBO.initFromFloats(this.gl.TEXTURE1,this.texWidth,this.texHeight,velocities);
-	this.positionsFBO.setupFBO();
-	this.velocitiesFBO.setupFBO();
+	this.positionsDB.bufferA.initFromFloats(this.texWidth,this.texHeight,positions);
+	this.positionsDB.bufferB.initFromFloats(this.texWidth,this.texHeight,positions);
+	this.velocitiesDB.bufferA.initFromFloats(this.texWidth,this.texHeight,velocities);
+	this.velocitiesDB.bufferB.initFromFloats(this.texWidth,this.texHeight,velocities);
+	this.positionsDB.bufferA.setupFBO();
+	this.positionsDB.bufferB.setupFBO();
+	this.velocitiesDB.bufferA.setupFBO();
+	this.velocitiesDB.bufferB.setupFBO();
 }
 GPUParticles2.prototype.setupRenderShader = function() {
 	var aPointsLoc = 2;
@@ -105,28 +108,31 @@ GPUParticles2.prototype.update = function() {
 	this.updatePositionsShader["use"]();
 	this.updatePositionsShader.worldWidthUniform.setFloat(this.canvasManager.canvas.width / 2);
 	this.updatePositionsShader.worldHeightUniform.setFloat(this.canvasManager.canvas.height / 2);
-	this.updatePositionsShader.positionsUniform.setInt(0);
-	this.updatePositionsShader.velocitiesUniform.setInt(1);
-	this.positionsFBO.bind();
+	this.updatePositionsShader.positionsUniform.setTexture(this.positionsDB.front);
+	this.updatePositionsShader.velocitiesUniform.setTexture(this.velocitiesDB.front);
+	this.positionsDB.back.bind();
 	this.gl.drawArrays(this.gl.TRIANGLE_STRIP,0,4);
-	this.positionsFBO.unbind();
+	this.positionsDB.back.unbind();
 	this.gl.flush();
 	this.updateVelocitiesShader["use"]();
 	this.updateVelocitiesShader.worldWidthUniform.setFloat(this.canvasManager.canvas.width / 2);
 	this.updateVelocitiesShader.worldHeightUniform.setFloat(this.canvasManager.canvas.height / 2);
-	this.updateVelocitiesShader.positionsUniform.setInt(0);
-	this.updateVelocitiesShader.velocitiesUniform.setInt(1);
-	this.velocitiesFBO.bind();
+	this.updateVelocitiesShader.positionsUniform.setTexture(this.positionsDB.front);
+	this.updateVelocitiesShader.velocitiesUniform.setTexture(this.velocitiesDB.front);
+	this.velocitiesDB.back.bind();
 	this.gl.drawArrays(this.gl.TRIANGLE_STRIP,0,4);
-	this.velocitiesFBO.unbind();
+	this.velocitiesDB.back.unbind();
 	this.gl.flush();
 	this.drawScene();
+	this.positionsDB.swap();
+	this.velocitiesDB.swap();
 }
 GPUParticles2.prototype.drawScene = function() {
 	this.gl.viewport(0,0,Std["int"](this.canvasManager.canvas.width),Std["int"](this.canvasManager.canvas.height));
 	this.gl.clear(this.gl.COLOR_BUFFER_BIT | this.gl.DEPTH_BUFFER_BIT);
 	this.renderShader["use"]();
 	this.renderShader.viewMatrix.setMatrix(this.mvMatrix.toFloat32Array());
+	this.renderShader.positionsTexture.setTexture(this.positionsDB.back);
 	this.gl.enable(this.gl.BLEND);
 	this.gl.drawArrays(this.gl.POINTS,0,this.particleCount);
 	this.gl.disable(this.gl.BLEND);
@@ -294,8 +300,8 @@ shaders.UpdateVelocitiesShader = function(gl) {
 	webgl.shaders.Shader.call(this,gl);
 	this.vertexPosition = new webgl.shaders.ShaderAttribute(this,"aPos");
 	this.vertexTextureCoord = new webgl.shaders.ShaderAttribute(this,"aTexCoord");
-	this.positionsUniform = new webgl.shaders.ShaderUniform(this,"positions");
-	this.velocitiesUniform = new webgl.shaders.ShaderUniform(this,"velocities");
+	this.positionsUniform = new webgl.shaders.ShaderTextureUniform(this,"positions",0);
+	this.velocitiesUniform = new webgl.shaders.ShaderTextureUniform(this,"velocities",1);
 	this.worldWidthUniform = new webgl.shaders.ShaderUniform(this,"worldW");
 	this.worldHeightUniform = new webgl.shaders.ShaderUniform(this,"worldH");
 	this.bounceFrictionUniform = new webgl.shaders.ShaderUniform(this,"bounceFriction");
@@ -554,8 +560,8 @@ shaders.UpdatePositionsShader = function(gl) {
 	webgl.shaders.Shader.call(this,gl);
 	this.vertexPosition = new webgl.shaders.ShaderAttribute(this,"aPos");
 	this.vertexTextureCoord = new webgl.shaders.ShaderAttribute(this,"aTexCoord");
-	this.positionsUniform = new webgl.shaders.ShaderUniform(this,"positions");
-	this.velocitiesUniform = new webgl.shaders.ShaderUniform(this,"velocities");
+	this.positionsUniform = new webgl.shaders.ShaderTextureUniform(this,"positions",0);
+	this.velocitiesUniform = new webgl.shaders.ShaderTextureUniform(this,"velocities",1);
 	this.worldWidthUniform = new webgl.shaders.ShaderUniform(this,"worldW");
 	this.worldHeightUniform = new webgl.shaders.ShaderUniform(this,"worldH");
 }
@@ -746,6 +752,12 @@ webgl.shaders.ShaderUniform.prototype.shader = null;
 webgl.shaders.ShaderUniform.prototype.name = null;
 webgl.shaders.ShaderUniform.prototype.location = null;
 webgl.shaders.ShaderUniform.prototype.gl = null;
+webgl.shaders.ShaderUniform.prototype.setTexture = function(textureSlot,i,value) {
+	this.shader["use"]();
+	this.gl.uniform1i(this.location,i);
+	this.gl.activeTexture(textureSlot);
+	this.gl.bindTexture(this.gl.TEXTURE_2D,value.texture);
+}
 webgl.shaders.ShaderUniform.prototype.setInt = function(value) {
 	this.shader["use"]();
 	this.gl.uniform1i(this.location,value);
@@ -839,18 +851,18 @@ webgl.textures.Texture2D.prototype.initFromBytes = function(width,height,data) {
 	this.gl.texParameteri(this.gl.TEXTURE_2D,this.gl.TEXTURE_WRAP_T,this.gl.CLAMP_TO_EDGE);
 	this.gl.bindTexture(this.gl.TEXTURE_2D,null);
 }
-webgl.textures.Texture2D.prototype.initFromFloats = function(index,width,height,data) {
+webgl.textures.Texture2D.prototype.initFromFloats = function(width,height,data) {
 	this.width = width;
 	this.height = height;
 	this.format = this.gl.RGBA;
 	this.isLoaded = true;
 	this.type = this.gl.FLOAT;
-	this.gl.activeTexture(index);
 	this.gl.bindTexture(this.gl.TEXTURE_2D,this.texture);
 	this.gl.pixelStorei(this.gl.UNPACK_ALIGNMENT,1);
 	this.gl.texImage2D(this.gl.TEXTURE_2D,0,this.gl.RGB,width,height,0,this.gl.RGB,this.gl.FLOAT,new Float32Array(data));
 	this.gl.texParameteri(this.gl.TEXTURE_2D,this.gl.TEXTURE_MIN_FILTER,this.gl.NEAREST);
 	this.gl.texParameteri(this.gl.TEXTURE_2D,this.gl.TEXTURE_MAG_FILTER,this.gl.NEAREST);
+	this.gl.bindTexture(this.gl.TEXTURE_2D,null);
 }
 webgl.textures.Texture2D.prototype.__class__ = webgl.textures.Texture2D;
 js.Boot = function() { }
@@ -1055,6 +1067,28 @@ webgl.textures.RenderTarget2D.prototype.unbind = function() {
 	this.gl.bindFramebuffer(this.gl.FRAMEBUFFER,null);
 }
 webgl.textures.RenderTarget2D.prototype.__class__ = webgl.textures.RenderTarget2D;
+webgl.shaders.ShaderTextureUniform = function(shader,name,textureindex) {
+	if( shader === $_ ) return;
+	this.shader = shader;
+	this.name = name;
+	this.gl = shader.gl;
+	this.texIndx = [this.gl.TEXTURE0,this.gl.TEXTURE1,this.gl.TEXTURE2,this.gl.TEXTURE3,this.gl.TEXTURE4,this.gl.TEXTURE5,this.gl.TEXTURE6,this.gl.TEXTURE7][textureindex];
+	shader["use"]();
+	this.location = this.gl.getUniformLocation(shader.program,name);
+	this.gl.uniform1i(this.location,textureindex);
+}
+webgl.shaders.ShaderTextureUniform.__name__ = ["webgl","shaders","ShaderTextureUniform"];
+webgl.shaders.ShaderTextureUniform.prototype.shader = null;
+webgl.shaders.ShaderTextureUniform.prototype.name = null;
+webgl.shaders.ShaderTextureUniform.prototype.location = null;
+webgl.shaders.ShaderTextureUniform.prototype.texIndx = null;
+webgl.shaders.ShaderTextureUniform.prototype.gl = null;
+webgl.shaders.ShaderTextureUniform.prototype.setTexture = function(value) {
+	this.shader["use"]();
+	this.gl.activeTexture(this.texIndx);
+	this.gl.bindTexture(this.gl.TEXTURE_2D,value.texture);
+}
+webgl.shaders.ShaderTextureUniform.prototype.__class__ = webgl.shaders.ShaderTextureUniform;
 shaders.RenderPointsShader = function(gl) {
 	if( gl === $_ ) return;
 	webgl.shaders.Shader.call(this,gl);
@@ -1071,7 +1105,7 @@ shaders.RenderPointsShader.prototype.pointSize = null;
 shaders.RenderPointsShader.prototype.setupAtribsAndUniforms = function() {
 	this.viewMatrix = new webgl.shaders.ShaderUniform(this,"mvMatrix");
 	this.perspectiveMatrix = new webgl.shaders.ShaderUniform(this,"prMatrix");
-	this.positionsTexture = new webgl.shaders.ShaderUniform(this,"positions");
+	this.positionsTexture = new webgl.shaders.ShaderTextureUniform(this,"positions",0);
 	this.vertexPosition = new webgl.shaders.ShaderAttribute(this,"vertexPosition");
 	this.pointSize = new webgl.shaders.ShaderUniform(this,"pointSize");
 }

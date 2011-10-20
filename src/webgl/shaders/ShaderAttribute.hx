@@ -23,7 +23,7 @@ class ShaderAttribute
 		this.gl = shader.gl;
 		
 		location = gl.getAttribLocation(shader.program, name);
-		gl.enableVertexAttribArray( location );		
+		gl.enableVertexAttribArray(location);		
 	}
 	
 	public function setData(value:Float32Array,?size:Int=1, ?stride:Int=0, ?offset:Int=0) : Float32Array

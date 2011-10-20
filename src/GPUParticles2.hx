@@ -30,8 +30,8 @@ class GPUParticles2
 	private var updatePositionsShader : UpdatePositionsShader;
 	private var updateVelocitiesShader : UpdateVelocitiesShader;
 	private var renderShader : RenderPointsShader;
-	private var positionsFBO : RenderTarget2D;
-	private var velocitiesFBO : RenderTarget2D;
+	private var positionsDB : DoubleBufferedRenderTarget2D;
+	private var velocitiesDB : DoubleBufferedRenderTarget2D;
 	
 	public function new(gl:WebGLRenderingContext) 
 	{
@@ -45,8 +45,8 @@ class GPUParticles2
 		updatePositionsShader = new UpdatePositionsShader(gl);
 		updateVelocitiesShader = new UpdateVelocitiesShader(gl);
 		renderShader = new RenderPointsShader(gl);	
-		positionsFBO = new RenderTarget2D(gl);
-		velocitiesFBO = new RenderTarget2D(gl);
+		positionsDB = new DoubleBufferedRenderTarget2D(gl);
+		velocitiesDB = new DoubleBufferedRenderTarget2D(gl);
 		
 		reset();
 		
@@ -62,9 +62,6 @@ class GPUParticles2
 		setupInitialPositionsAndVelocities();					
 		setupRenderShader();
 		setupPositionAndVelocityUpdateShaders();
-						
-		// Im not sure why but apparently this has to go here		
-		renderShader.positionsTexture.setInt(0);		
 		
 		// Black background with blending
 		gl.blendFunc(gl.SRC_ALPHA, gl.ONE);
@@ -110,12 +107,17 @@ class GPUParticles2
 			velocities.push((-4)+(Math.sin(ang)*dist*2)+Math.random()*8);
 			velocities.push((-4)+(Math.cos(ang)*dist*2)+Math.random()*8);
 			velocities.push(0);
-		}	
+		}			
+	
+		positionsDB.bufferA.initFromFloats(texWidth, texHeight, positions);
+		positionsDB.bufferB.initFromFloats(texWidth, texHeight, positions);
+		velocitiesDB.bufferA.initFromFloats(texWidth, texHeight, velocities);
+		velocitiesDB.bufferB.initFromFloats(texWidth, texHeight, velocities);
 		
-		positionsFBO.initFromFloats(gl.TEXTURE0, texWidth, texHeight, positions);
-		velocitiesFBO.initFromFloats(gl.TEXTURE1, texWidth, texHeight, velocities);		
-		positionsFBO.setupFBO();
-		velocitiesFBO.setupFBO();				
+		positionsDB.bufferA.setupFBO();
+		positionsDB.bufferB.setupFBO();
+		velocitiesDB.bufferA.setupFBO();
+		velocitiesDB.bufferB.setupFBO();
 	}
 	
 	private function setupRenderShader() : Void	
@@ -149,6 +151,7 @@ class GPUParticles2
 		
 		renderShader.setupAtribsAndUniforms();			
 		renderShader.pointSize.setFloat(particleSize);	
+		//renderShader.vertexPosition.setData(new Float32Array(vertices));
 		
 		// Orthographic rendering
 		var prMatrix = new Mat4();
@@ -162,29 +165,32 @@ class GPUParticles2
 		gl.viewport(0, 0, texWidth, texHeight);
 	
 		// Update positions
-		updatePositionsShader.use();
+		updatePositionsShader.use();		
 		updatePositionsShader.worldWidthUniform.setFloat(canvasManager.canvas.width/2);
 		updatePositionsShader.worldHeightUniform.setFloat(canvasManager.canvas.height / 2);
-		updatePositionsShader.positionsUniform.setInt(0);
-		updatePositionsShader.velocitiesUniform.setInt(1);
-		positionsFBO.bind();
+		updatePositionsShader.positionsUniform.setTexture(positionsDB.front);
+		updatePositionsShader.velocitiesUniform.setTexture(velocitiesDB.front);	
+		positionsDB.back.bind();		
 		gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
-		positionsFBO.unbind();
+		positionsDB.back.unbind();
 		gl.flush();
 
 		// Update velocities
-		updateVelocitiesShader.use();
+		updateVelocitiesShader.use();		
 		updateVelocitiesShader.worldWidthUniform.setFloat(canvasManager.canvas.width/2);
-		updateVelocitiesShader.worldHeightUniform.setFloat(canvasManager.canvas.height/2);
-		updateVelocitiesShader.positionsUniform.setInt(0);
-		updateVelocitiesShader.velocitiesUniform.setInt(1);
-		velocitiesFBO.bind();
+		updateVelocitiesShader.worldHeightUniform.setFloat(canvasManager.canvas.height / 2);				
+		updateVelocitiesShader.positionsUniform.setTexture(positionsDB.front);
+		updateVelocitiesShader.velocitiesUniform.setTexture(velocitiesDB.front);		
+		velocitiesDB.back.bind();
 		gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
-		velocitiesFBO.unbind();
+		velocitiesDB.back.unbind();
 		gl.flush();
 	
 		// Render it all
 		drawScene();
+		
+		positionsDB.swap();
+		velocitiesDB.swap();
 	}
 	
 	function drawScene()
@@ -196,12 +202,13 @@ class GPUParticles2
 		renderShader.use();
 	
 		// The mv matrix may have changed, reset it	
-		renderShader.viewMatrix.setMatrix(mvMatrix.toFloat32Array());
+		renderShader.viewMatrix.setMatrix(mvMatrix.toFloat32Array());		
+		renderShader.positionsTexture.setTexture(positionsDB.back);
 
 		// Render all the points
 		gl.enable(gl.BLEND);
 		gl.drawArrays(gl.POINTS, 0, particleCount);
 		gl.disable(gl.BLEND);
-		gl.flush ();
+		gl.flush ();		
 	}	
 }

@@ -95,20 +95,19 @@ class Texture2D
 		gl.bindTexture(gl.TEXTURE_2D, null);
 	}
 	
-	public function initFromFloats(index:GLint, width:Int, height:Int, data:Array<Float>)  : Void
+	public function initFromFloats(width:Int, height:Int, data:Array<Float>)  : Void
 	{
 		this.width = width;
 		this.height = height;
 		this.format = gl.RGBA;
 		isLoaded = true;
 		type = gl.FLOAT;
-		gl.activeTexture(index);
 		gl.bindTexture(gl.TEXTURE_2D, texture);
 		gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
 		gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGB, width, height, 0, gl.RGB, gl.FLOAT, new Float32Array(data));
 		gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
 		gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
-		//gl.bindTexture(gl.TEXTURE_2D, null);
+		gl.bindTexture(gl.TEXTURE_2D, null);
 	}
 	
 	
